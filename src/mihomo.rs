@@ -847,6 +847,31 @@ impl Mihomo {
         Ok(())
     }
 
+    /// 直接用配置字符串(payload)重载,不经磁盘文件(纯内存喂 mihomo)
+    pub async fn reload_config_payload(&self, force: bool, payload: &str) -> Result<()> {
+        let body = json!({ "payload": payload });
+        let client = self
+            .build_request(Method::PUT, "/configs")?
+            .timeout(Duration::from_secs(60))
+            .query(&[("force", force)])
+            .json(&body);
+        let response_result = self.send_by_protocol(client).await;
+        if matches!(self.protocol, Protocol::LocalSocket)
+            && let Ok(pool) = IpcConnectionPool::global()
+        {
+            pool.clear_pool();
+        }
+        let response = response_result?;
+        if !response.status().is_success() {
+            let err_msg = response.json::<ErrorResponse>().await.map_or_else(
+                |e| format!("reload base config failed, {}", e),
+                |err_res| err_res.message,
+            );
+            ret_failed_resp!("{}", err_msg);
+        }
+        Ok(())
+    }
+
     /// 更新基础配置
     pub async fn patch_base_config<D: serde::Serialize + Clone + Sync>(&self, data: &D) -> Result<()> {
         let client = { self.build_request(Method::PATCH, "/configs")?.json(&data) };
